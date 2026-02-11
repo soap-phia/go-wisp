@@ -1,17 +1,17 @@
 {
-	"blacklist": {
-		"hostnames": []
-	},
-	"bufferRemainingLength": 256,
-	"disableUDP": true,
-	"dnsServer": "",
-	"port": "6001",
-	"proxy": "",
-	"tcpBufferSize": 131072,
-	"tcpNoDelay": true,
-	"websocketPermessageDeflate": false,
-	"websocketTcpNoDelay": true,
-	"whitelist": {
-		"hostnames": []
-	}
+    "port": "6001",
+    "disableUDP": true,
+    "tcpBufferSize": 131072,
+    "bufferRemainingLength": 256,
+    "tcpNoDelay": true,
+    "websocketTcpNoDelay": true,
+    "blacklist": {
+        "hostnames": []
+    },
+    "whitelist": {
+        "hostnames": []
+    },
+    "proxy": "",
+    "websocketPermessageDeflate": false,
+    "dnsServer": "94.140.14.14:53"
 }
