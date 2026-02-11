@@ -1,7 +1,7 @@
 {
     "port": "6001",
     "disableUDP": true,
-    "tcpBufferSize": 131072,
+    "tcpBufferSize": 262144,
     "bufferRemainingLength": 256,
     "tcpNoDelay": true,
     "websocketTcpNoDelay": true,
@@ -13,5 +13,5 @@
     },
     "proxy": "",
     "websocketPermessageDeflate": false,
-    "dnsServer": "94.140.14.14:53"
+    "dnsServer": ""
 }

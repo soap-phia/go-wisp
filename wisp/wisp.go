@@ -25,16 +25,9 @@ type Config struct {
 
 func CreateWispHandler(config *Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		handler := &handler{
-			wispConn: &wispConnection{
-				config:  config,
-				streams: make(map[uint32]*wispStream),
-			},
-		}
+		handler := &handler{}
 
 		upgrader := gws.NewUpgrader(handler, &gws.ServerOption{
-			ParallelEnabled: true,
-			Recovery:        gws.Recovery,
 			PermessageDeflate: gws.PermessageDeflate{
 				Enabled: config.WebsocketPermessageDeflate,
 				// todo: add configuration support for other compression options
@@ -48,7 +41,11 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 
 		wsConn.SetNoDelay(config.WebsocketTcpNoDelay)
 
-		handler.wispConn.wsConn = wsConn
+		handler.wispConn = &wispConnection{
+			wsConn:  wsConn,
+			streams: make(map[uint32]*wispStream),
+			config:  config,
+		}
 
 		go wsConn.ReadLoop()
 	}
@@ -75,12 +72,6 @@ func (h *handler) OnMessage(socket *gws.Conn, message *gws.Message) {
 		return
 	}
 	packetType, streamId, payload := parseWispPacket(packet)
-
-	if packetType == packetTypeData {
-		payloadCopy := make([]byte, len(payload))
-		copy(payloadCopy, payload)
-		payload = payloadCopy
-	}
 
 	h.wispConn.handlePacket(packetType, streamId, payload)
 }

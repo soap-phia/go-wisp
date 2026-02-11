@@ -17,6 +17,9 @@ type wispStream struct {
 	conn            net.Conn
 	bufferRemaining uint32
 
+	connEstablished     chan struct{}
+	connEstablishedOnce sync.Once
+
 	dataQueue chan []byte
 
 	isOpen      bool
@@ -24,12 +27,14 @@ type wispStream struct {
 }
 
 func (s *wispStream) handleConnect(streamType uint8, port string, hostname string) {
+	defer s.signalConnectionAttemptDone()
+
 	if _, blacklisted := s.wispConn.config.Blacklist.Hostnames[hostname]; blacklisted {
 		s.close(closeReasonBlocked)
 		return
 	}
 
-	resolvedHostname := hostname
+	var resolvedHostname string = hostname
 	if _, whitelisted := s.wispConn.config.Whitelist.Hostnames[hostname]; !whitelisted && s.wispConn.config.DnsServer != "" {
 		resolver := net.Resolver{
 			PreferGo: true,
@@ -45,11 +50,6 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			return
 		}
 
-		if len(ips) == 0 {
-			s.close(closeReasonUnreachable)
-			return
-		}
-
 		resolvedHostname = ips[0].IP.String()
 		if resolvedHostname == "0.0.0.0" || resolvedHostname == "::" {
 			s.close(closeReasonBlocked)
@@ -60,7 +60,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	s.streamType = streamType
 	s.bufferRemaining = s.wispConn.config.BufferRemainingLength
 
-	destination := net.JoinHostPort(resolvedHostname, port)
+	destination := net.JoinHostPort(hostname, port)
 
 	netDialer := net.Dial
 	var err error
@@ -96,11 +96,25 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		tcpConn.SetNoDelay(s.wispConn.config.TcpNoDelay)
 	}
 
-	go s.handleData()
 	go s.readFromConnection()
 }
 
+func (s *wispStream) signalConnectionAttemptDone() {
+	s.connEstablishedOnce.Do(func() {
+		close(s.connEstablished)
+	})
+}
+
 func (s *wispStream) handleData() {
+	<-s.connEstablished
+
+	s.isOpenMutex.RLock()
+	if !s.isOpen {
+		s.isOpenMutex.RUnlock()
+		return
+	}
+	s.isOpenMutex.RUnlock()
+
 	for data := range s.dataQueue {
 		_, err := s.conn.Write(data)
 		if err != nil {
@@ -144,6 +158,14 @@ func (s *wispStream) closeConnection() {
 func (s *wispStream) readFromConnection() {
 	var closeReason uint8
 
+	dataChan := make(chan []byte)
+	defer close(dataChan)
+	go func() {
+		for data := range dataChan {
+			s.sendData(data)
+		}
+	}()
+
 	isEven := true
 	buffer1 := make([]byte, s.wispConn.config.TcpBufferSize)
 	buffer2 := make([]byte, s.wispConn.config.TcpBufferSize)
@@ -166,7 +188,7 @@ func (s *wispStream) readFromConnection() {
 			break
 		}
 
-		s.sendData(buffer[:n])
+		dataChan <- buffer[:n]
 
 		isEven = !isEven
 	}
@@ -176,17 +198,22 @@ func (s *wispStream) readFromConnection() {
 
 func (s *wispStream) close(reason uint8) {
 	s.isOpenMutex.Lock()
-	defer s.isOpenMutex.Unlock()
 	if !s.isOpen {
+		s.isOpenMutex.Unlock()
 		return
 	}
 	s.isOpen = false
+	s.isOpenMutex.Unlock()
+
+	s.signalConnectionAttemptDone()
 
 	s.wispConn.deleteWispStream(s.streamId)
 
 	s.closeConnection()
 
-	close(s.dataQueue)
+	if s.dataQueue != nil {
+		close(s.dataQueue)
+	}
 
 	s.sendClose(reason)
 }

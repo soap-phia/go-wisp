@@ -49,6 +49,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	stream := &wispStream{
 		wispConn:  c,
 		streamId:  streamId,
+		connEstablished: make(chan struct{}),
 		dataQueue: make(chan []byte, c.config.BufferRemainingLength),
 		isOpen:    true,
 	}
@@ -56,12 +57,15 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	c.streamsMu.Lock()
 	if _, exists := c.streams[streamId]; exists {
 		c.streamsMu.Unlock()
+		close(stream.dataQueue)
+		close(stream.connEstablished)
 		return
 	}
 	c.streams[streamId] = stream
 	c.streamsMu.Unlock()
 
 	go stream.handleConnect(streamType, port, hostname)
+	go stream.handleData()
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
