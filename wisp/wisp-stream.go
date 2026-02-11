@@ -17,8 +17,7 @@ type wispStream struct {
 	conn            net.Conn
 	bufferRemaining uint32
 
-	connEstablished chan bool
-	dataQueue       chan []byte
+	dataQueue chan []byte
 
 	isOpen      bool
 	isOpenMutex sync.RWMutex
@@ -30,7 +29,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		return
 	}
 
-	var resolvedHostname string = hostname
+	resolvedHostname := hostname
 	if _, whitelisted := s.wispConn.config.Whitelist.Hostnames[hostname]; !whitelisted && s.wispConn.config.DnsServer != "" {
 		resolver := net.Resolver{
 			PreferGo: true,
@@ -46,6 +45,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			return
 		}
 
+		if len(ips) == 0 {
+			s.close(closeReasonUnreachable)
+			return
+		}
+
 		resolvedHostname = ips[0].IP.String()
 		if resolvedHostname == "0.0.0.0" || resolvedHostname == "::" {
 			s.close(closeReasonBlocked)
@@ -56,7 +60,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	s.streamType = streamType
 	s.bufferRemaining = s.wispConn.config.BufferRemainingLength
 
-	destination := net.JoinHostPort(hostname, port)
+	destination := net.JoinHostPort(resolvedHostname, port)
 
 	netDialer := net.Dial
 	var err error
@@ -92,16 +96,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		tcpConn.SetNoDelay(s.wispConn.config.TcpNoDelay)
 	}
 
-	s.connEstablished <- true
-
+	go s.handleData()
 	go s.readFromConnection()
 }
 
 func (s *wispStream) handleData() {
-	if !<-s.connEstablished {
-		return
-	}
-
 	for data := range s.dataQueue {
 		_, err := s.conn.Write(data)
 		if err != nil {
@@ -145,14 +144,6 @@ func (s *wispStream) closeConnection() {
 func (s *wispStream) readFromConnection() {
 	var closeReason uint8
 
-	dataChan := make(chan []byte)
-	defer close(dataChan)
-	go func() {
-		for data := range dataChan {
-			s.sendData(data)
-		}
-	}()
-
 	isEven := true
 	buffer1 := make([]byte, s.wispConn.config.TcpBufferSize)
 	buffer2 := make([]byte, s.wispConn.config.TcpBufferSize)
@@ -175,7 +166,7 @@ func (s *wispStream) readFromConnection() {
 			break
 		}
 
-		dataChan <- buffer[:n]
+		s.sendData(buffer[:n])
 
 		isEven = !isEven
 	}
@@ -196,8 +187,6 @@ func (s *wispStream) close(reason uint8) {
 	s.closeConnection()
 
 	close(s.dataQueue)
-
-	close(s.connEstablished)
 
 	s.sendClose(reason)
 }

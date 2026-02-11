@@ -11,7 +11,8 @@ import (
 type wispConnection struct {
 	wsConn *gws.Conn
 
-	streams sync.Map
+	streamsMu sync.RWMutex
+	streams   map[uint32]*wispStream
 
 	config *Config
 }
@@ -46,30 +47,31 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	hostname := string(payload[3:])
 
 	stream := &wispStream{
-		wispConn:        c,
-		streamId:        streamId,
-		connEstablished: make(chan bool, 1),
-		dataQueue:       make(chan []byte, c.config.BufferRemainingLength),
-		isOpen:          true,
+		wispConn:  c,
+		streamId:  streamId,
+		dataQueue: make(chan []byte, c.config.BufferRemainingLength),
+		isOpen:    true,
 	}
 
-	_, loaded := c.streams.LoadOrStore(streamId, stream)
-	if loaded {
+	c.streamsMu.Lock()
+	if _, exists := c.streams[streamId]; exists {
+		c.streamsMu.Unlock()
 		return
 	}
+	c.streams[streamId] = stream
+	c.streamsMu.Unlock()
 
 	go stream.handleConnect(streamType, port, hostname)
-
-	go stream.handleData()
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
-	streamAny, exists := c.streams.Load(streamId)
+	c.streamsMu.RLock()
+	stream, exists := c.streams[streamId]
+	c.streamsMu.RUnlock()
 	if !exists {
 		go c.sendClosePacket(streamId, closeReasonInvalidInfo)
 		return
 	}
-	stream := streamAny.(*wispStream)
 
 	stream.isOpenMutex.RLock()
 	defer stream.isOpenMutex.RUnlock()
@@ -89,18 +91,22 @@ func (c *wispConnection) handleClosePacket(streamId uint32, payload []byte) {
 	}
 	closeReason := payload[0]
 
-	streamAny, exists := c.streams.Load(streamId)
+	c.streamsMu.RLock()
+	stream, exists := c.streams[streamId]
+	c.streamsMu.RUnlock()
 	if !exists {
 		return
 	}
-	stream := streamAny.(*wispStream)
 
 	go stream.handleClose(closeReason)
 }
 
 func (c *wispConnection) sendPacket(packetType uint8, streamId uint32, payload []byte) {
-	packet := createWispPacket(packetType, streamId, payload)
-	if err := c.wsConn.WriteMessage(gws.OpcodeBinary, packet); err != nil {
+	var header [5]byte
+	header[0] = packetType
+	binary.LittleEndian.PutUint32(header[1:5], streamId)
+
+	if err := c.wsConn.Writev(gws.OpcodeBinary, header[:], payload); err != nil {
 		c.close()
 	}
 }
@@ -121,12 +127,20 @@ func (c *wispConnection) sendClosePacket(streamId uint32, reason uint8) {
 }
 
 func (c *wispConnection) deleteWispStream(streamId uint32) {
-	c.streams.Delete(streamId)
+	c.streamsMu.Lock()
+	delete(c.streams, streamId)
+	c.streamsMu.Unlock()
 }
 
 func (c *wispConnection) deleteAllWispStreams() {
-	for _, streamAny := range c.streams.Range {
-		stream := streamAny.(*wispStream)
+	c.streamsMu.RLock()
+	streams := make([]*wispStream, 0, len(c.streams))
+	for _, stream := range c.streams {
+		streams = append(streams, stream)
+	}
+	c.streamsMu.RUnlock()
+
+	for _, stream := range streams {
 		stream.close(closeReasonUnspecified)
 	}
 }

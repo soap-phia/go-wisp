@@ -1,0 +1,17 @@
+{
+	"blacklist": {
+		"hostnames": []
+	},
+	"bufferRemainingLength": 256,
+	"disableUDP": true,
+	"dnsServer": "",
+	"port": "6001",
+	"proxy": "",
+	"tcpBufferSize": 131072,
+	"tcpNoDelay": true,
+	"websocketPermessageDeflate": false,
+	"websocketTcpNoDelay": true,
+	"whitelist": {
+		"hostnames": []
+	}
+}

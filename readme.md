@@ -15,7 +15,7 @@ go-wisp is a lightweight proxy server written in Go that multiplexes multiple TC
 1. **Clone the Repository:**
 
     ```sh
-    git clone https://github.com/TheFalloutOf76/go-wisp
+    git clone https://github.com/soap-phia/go-wisp
     cd go-wisp
     ```
 
@@ -32,8 +32,8 @@ go-wisp is a lightweight proxy server written in Go that multiplexes multiple TC
     ```
 
 ## Usage
-1. Download a pre-compiled binary that matches your target platform from [builds](https://github.com/TheFalloutOf76/go-wisp/releases/tag/builds).
+1. Download a pre-compiled binary that matches your target platform from [builds](https://github.com/soap-phia/go-wisp/releases/tag/builds).
 2. Unzip all the files.
 3. Configure the server by editing the `config.json` file in the project root.
-4. Run `go-wisp`.
+4. Run `./go-wisp`.
 5. Connect your clients to the server using a websocket connection. The server takes care of multiplexing and routing to the appropriate TCP/UDP streams.
